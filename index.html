@@ -63,7 +63,7 @@
         </div>
 
         <footer class="text-center mt-8 text-gray-500 text-sm">
-            <p><strong>注意:</strong> このシステムはフロントエンドのデモです。実際の動作にはサーバーサイドのプログラムが必要です。</p>
+            <p><strong>注意:</strong> このシステムは現在、バックエンドサーバーと連携して動作します。</p>
         </footer>
     </div>
 
@@ -127,5 +127,42 @@
         });
 
         function resetUI() {
-// ... existing code ... -->
+            scrapeButton.disabled = true;
+            scrapeButton.textContent = '検索中...';
+            loadingDiv.classList.remove('hidden');
+            errorDiv.classList.add('hidden');
+            resultsList.innerHTML = '';
+            noResultsP.style.display = 'none';
+        }
+
+        function showError(message) {
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+
+        function displayResults(urls) {
+             noResultsP.style.display = 'none';
+             urls.forEach(item => {
+                const li = document.createElement('li');
+                li.className = 'p-2 bg-white rounded-md shadow-sm border border-gray-200';
+                
+                const link = document.createElement('a');
+                link.href = item.url;
+                link.textContent = item.url;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.className = 'text-blue-600 hover:underline break-all';
+
+                const depthSpan = document.createElement('span');
+                depthSpan.textContent = ` (階層: ${item.depth})`;
+                depthSpan.className = 'text-sm text-gray-500 ml-2';
+
+                li.appendChild(link);
+                li.appendChild(depthSpan);
+                resultsList.appendChild(li);
+            });
+        }
+    </script>
+</body>
+</html>
 
