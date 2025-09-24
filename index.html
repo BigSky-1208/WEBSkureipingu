@@ -7,29 +7,31 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-        .loader {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #3498db;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+        body { font-family: 'Inter', sans-serif; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
-    <div class="container mx-auto p-4 md:p-8 max-w-3xl">
+
+    <!-- ログインしていない時に表示する画面 -->
+    <div id="login-view" class="container mx-auto p-8 max-w-md text-center" style="display: none;">
+        <div class="bg-white rounded-2xl shadow-lg p-8">
+            <h1 class="text-3xl font-bold text-gray-900 mb-4">ようこそ</h1>
+            <p class="text-gray-600 mb-8">このシステムを利用するにはログインが必要です。</p>
+            <a href="/login" class="w-full inline-block bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors">ログイン</a>
+        </div>
+    </div>
+
+    <!-- ログイン後に表示するメイン画面 -->
+    <div id="app-view" class="container mx-auto p-4 md:p-8 max-w-3xl" style="display: none;">
         <div class="bg-white rounded-2xl shadow-lg p-6 md:p-8">
-            <header class="mb-6">
-                <h1 class="text-3xl font-bold text-gray-900">Webスクレイピングシステム</h1>
-                <p class="text-gray-600 mt-2">指定したURLから2階層下までを探索し、キーワードが含まれるページを検索します。</p>
+            <header class="mb-6 flex justify-between items-center">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">Webスクレイピングシステム</h1>
+                    <p id="user-info" class="text-gray-600 mt-2"></p>
+                </div>
+                <a href="/logout" class="bg-red-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-600 transition-colors">ログアウト</a>
             </header>
 
             <div class="space-y-4">
@@ -41,124 +43,104 @@
                     <label for="keyword" class="block text-sm font-medium text-gray-700 mb-1">検索キーワード</label>
                     <input type="text" id="keyword" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="例: テクノロジー">
                 </div>
-                <button id="scrapeButton" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-300">
-                    検索開始
-                </button>
-            </div>
-
-            <div id="loading" class="mt-8 text-center hidden">
-                <div class="loader inline-block"></div>
-                <p class="text-gray-600 mt-2">検索中です... (時間がかかる場合があります)</p>
+                <button id="scrapeButton" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors">検索開始</button>
             </div>
             
+            <div id="loading" class="mt-8 text-center hidden"><div class="loader inline-block"></div><p class="mt-2">検索中...</p></div>
             <div id="error" class="mt-6 p-4 bg-red-100 text-red-700 rounded-lg hidden"></div>
-
             <div class="mt-8">
-                <h2 class="text-2xl font-semibold text-gray-900">検索結果</h2>
+                <h2 class="text-2xl font-semibold">検索結果</h2>
                 <div id="results" class="mt-4 bg-gray-50 p-4 rounded-lg min-h-[100px] max-h-96 overflow-y-auto">
                     <p id="no-results" class="text-gray-500">ここに結果が表示されます。</p>
                     <ul id="resultsList" class="space-y-2"></ul>
                 </div>
             </div>
         </div>
-
-        <footer class="text-center mt-8 text-gray-500 text-sm">
-            <p><strong>注意:</strong> このシステムは現在、バックエンドサーバーと連携して動作します。</p>
-        </footer>
     </div>
 
     <script>
+        // --- 要素の取得 ---
+        const loginView = document.getElementById('login-view');
+        const appView = document.getElementById('app-view');
+        const userInfo = document.getElementById('user-info');
         const startUrlInput = document.getElementById('startUrl');
         const keywordInput = document.getElementById('keyword');
         const scrapeButton = document.getElementById('scrapeButton');
+        // ... 他の要素 ...
         const loadingDiv = document.getElementById('loading');
         const errorDiv = document.getElementById('error');
-        const resultsDiv = document.getElementById('results');
-        const noResultsP = document.getElementById('no-results');
         const resultsList = document.getElementById('resultsList');
+        const noResultsP = document.getElementById('no-results');
 
+        // --- ページの読み込み時にログイン状態を確認 ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const response = await fetch('/profile');
+                const data = await response.json();
+                if (data.isAuthenticated) {
+                    loginView.style.display = 'none';
+                    appView.style.display = 'block';
+                    userInfo.textContent = `ようこそ、${data.user.name} さん`;
+                } else {
+                    loginView.style.display = 'block';
+                    appView.style.display = 'none';
+                }
+            } catch (error) {
+                loginView.style.display = 'block';
+                appView.style.display = 'none';
+                console.error('プロファイルの取得に失敗しました:', error);
+            }
+        });
+        
+        // --- スクレイピングボタンの処理 ---
         scrapeButton.addEventListener('click', async () => {
             const startUrl = startUrlInput.value;
             const keyword = keywordInput.value;
-
             if (!startUrl || !keyword) {
-                showError('URLとキーワードの両方を入力してください。');
+                showError('URLとキーワードを入力してください。');
                 return;
             }
-            
-            // --- UIの初期化 ---
             resetUI();
-
-            // --- バックエンドAPIへのリクエスト ---
             try {
                 const response = await fetch('/scrape', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ startUrl, keyword }),
                 });
-
                 if (!response.ok) {
                     const errorData = await response.json();
                     throw new Error(errorData.error || `サーバーエラー: ${response.status}`);
                 }
-
                 const data = await response.json();
-
-                // レスポンスを処理して結果を表示
                 if (data.foundUrls && data.foundUrls.length > 0) {
                     displayResults(data.foundUrls);
                 } else {
                     noResultsP.textContent = 'キーワードに一致するページは見つかりませんでした。';
                     noResultsP.style.display = 'block';
                 }
-
             } catch (err) {
-                // バックエンドからのエラーレスポンスを処理
-                showError(err.message || 'スクレイピング中にエラーが発生しました。');
-                console.error(err);
+                showError(err.message || 'エラーが発生しました。');
             } finally {
-                // ローディング表示を終了
                 loadingDiv.classList.add('hidden');
-                scrapeButton.disabled = false;
-                scrapeButton.textContent = '検索開始';
             }
         });
 
+        // --- UI操作のためのヘルパー関数 ---
         function resetUI() {
-            scrapeButton.disabled = true;
-            scrapeButton.textContent = '検索中...';
             loadingDiv.classList.remove('hidden');
             errorDiv.classList.add('hidden');
             resultsList.innerHTML = '';
             noResultsP.style.display = 'none';
         }
-
-        function showError(message) {
-            errorDiv.textContent = message;
-            errorDiv.classList.remove('hidden');
-        }
-
+        function showError(message) { errorDiv.textContent = message; errorDiv.classList.remove('hidden'); }
         function displayResults(urls) {
-             noResultsP.style.display = 'none';
-             urls.forEach(item => {
+            noResultsP.style.display = 'none';
+            urls.forEach(item => {
                 const li = document.createElement('li');
-                li.className = 'p-2 bg-white rounded-md shadow-sm border border-gray-200';
-                
+                li.className = 'p-2 bg-white rounded-md shadow-sm';
                 const link = document.createElement('a');
-                link.href = item.url;
-                link.textContent = item.url;
-                link.target = '_blank';
-                link.rel = 'noopener noreferrer';
-                link.className = 'text-blue-600 hover:underline break-all';
-
-                const depthSpan = document.createElement('span');
-                depthSpan.textContent = ` (階層: ${item.depth})`;
-                depthSpan.className = 'text-sm text-gray-500 ml-2';
-
+                link.href = item.url; link.textContent = item.url; link.target = '_blank'; link.className = 'text-blue-600 hover:underline break-all';
                 li.appendChild(link);
-                li.appendChild(depthSpan);
                 resultsList.appendChild(li);
             });
         }
