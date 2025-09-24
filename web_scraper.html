@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webスクレイピングシステム</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+    <div class="container mx-auto p-4 md:p-8 max-w-3xl">
+        <div class="bg-white rounded-2xl shadow-lg p-6 md:p-8">
+            <header class="mb-6">
+                <h1 class="text-3xl font-bold text-gray-900">Webスクレイピングシステム</h1>
+                <p class="text-gray-600 mt-2">指定したURLから2階層下までを探索し、キーワードが含まれるページを検索します。</p>
+            </header>
+
+            <div class="space-y-4">
+                <div>
+                    <label for="startUrl" class="block text-sm font-medium text-gray-700 mb-1">対象URL</label>
+                    <input type="url" id="startUrl" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="https://example.com">
+                </div>
+                <div>
+                    <label for="keyword" class="block text-sm font-medium text-gray-700 mb-1">検索キーワード</label>
+                    <input type="text" id="keyword" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="例: テクノロジー">
+                </div>
+                <button id="scrapeButton" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-300">
+                    検索開始
+                </button>
+            </div>
+
+            <div id="loading" class="mt-8 text-center hidden">
+                <div class="loader inline-block"></div>
+                <p class="text-gray-600 mt-2">検索中です... (時間がかかる場合があります)</p>
+            </div>
+            
+            <div id="error" class="mt-6 p-4 bg-red-100 text-red-700 rounded-lg hidden"></div>
+
+            <div class="mt-8">
+                <h2 class="text-2xl font-semibold text-gray-900">検索結果</h2>
+                <div id="results" class="mt-4 bg-gray-50 p-4 rounded-lg min-h-[100px] max-h-96 overflow-y-auto">
+                    <p id="no-results" class="text-gray-500">ここに結果が表示されます。</p>
+                    <ul id="resultsList" class="space-y-2"></ul>
+                </div>
+            </div>
+        </div>
+
+        <footer class="text-center mt-8 text-gray-500 text-sm">
+            <p><strong>注意:</strong> このシステムはフロントエンドのデモです。実際の動作にはサーバーサイドのプログラムが必要です。</p>
+        </footer>
+    </div>
+
+    <script>
+        const startUrlInput = document.getElementById('startUrl');
+        const keywordInput = document.getElementById('keyword');
+        const scrapeButton = document.getElementById('scrapeButton');
+        const loadingDiv = document.getElementById('loading');
+        const errorDiv = document.getElementById('error');
+        const resultsDiv = document.getElementById('results');
+        const noResultsP = document.getElementById('no-results');
+        const resultsList = document.getElementById('resultsList');
+
+        scrapeButton.addEventListener('click', async () => {
+            const startUrl = startUrlInput.value;
+            const keyword = keywordInput.value;
+
+            if (!startUrl || !keyword) {
+                showError('URLとキーワードの両方を入力してください。');
+                return;
+            }
+            
+            // --- UIの初期化 ---
+            resetUI();
+
+            // --- バックエンドAPIへのリクエスト ---
+            try {
+                const response = await fetch('/scrape', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ startUrl, keyword }),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `サーバーエラー: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                // レスポンスを処理して結果を表示
+                if (data.foundUrls && data.foundUrls.length > 0) {
+                    displayResults(data.foundUrls);
+                } else {
+                    noResultsP.textContent = 'キーワードに一致するページは見つかりませんでした。';
+                    noResultsP.style.display = 'block';
+                }
+
+            } catch (err) {
+                // バックエンドからのエラーレスポンスを処理
+                showError(err.message || 'スクレイピング中にエラーが発生しました。');
+                console.error(err);
+            } finally {
+                // ローディング表示を終了
+                loadingDiv.classList.add('hidden');
+                scrapeButton.disabled = false;
+                scrapeButton.textContent = '検索開始';
+            }
+        });
+
+        function resetUI() {
+// ... existing code ... -->
+
