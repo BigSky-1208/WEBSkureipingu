@@ -85,15 +85,30 @@
 
         // WebSocket接続を確立する関数
         function connectWebSocket() {
+            // 既に接続中または接続済みの場合は何もしない
+            if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+                return;
+            }
+
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}`;
             ws = new WebSocket(wsUrl);
 
-            ws.onopen = () => console.log('WebSocket connected.');
-            ws.onclose = () => console.log('WebSocket disconnected.');
+            ws.onopen = () => {
+                console.log('WebSocket connected.');
+                showError(''); // 接続成功時にエラーメッセージをクリア
+            };
+            
+            ws.onclose = () => {
+                console.log('WebSocket disconnected. Retrying in 3 seconds...');
+                showError('サーバーとの接続が切れました。3秒後に再接続します...');
+                // 3秒後に再接続を試みる
+                setTimeout(connectWebSocket, 3000);
+            };
+
             ws.onerror = (err) => {
                 console.error('WebSocket error:', err);
-                showError('サーバーとの通信に失敗しました。ページを再読み込みしてください。');
+                // onerrorは通常oncloseもトリガーするので、onclose側で再接続処理を行う
             };
 
             // サーバーからのメッセージを処理
@@ -125,6 +140,17 @@
             };
         }
 
+        // メッセージを安全に送信する関数
+        function safeSend(data) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(data));
+                return true;
+            } else {
+                showError('サーバーとの接続が確立されていません。再接続を待っています...');
+                return false;
+            }
+        }
+
         // 検索開始ボタンの処理
         scrapeButton.addEventListener('click', () => {
             const startUrl = startUrlInput.value;
@@ -135,21 +161,23 @@
                 return;
             }
             
-            resetUI(true); // 検索開始状態にUIをリセット
-            ws.send(JSON.stringify({ type: 'start', payload: { startUrl, keyword } }));
+            if (safeSend({ type: 'start', payload: { startUrl, keyword } })) {
+                resetUI(true); // 送信成功時のみUIをリセット
+            }
         });
 
         // 検索ストップボタンの処理
         stopButton.addEventListener('click', () => {
-            ws.send(JSON.stringify({ type: 'stop' }));
-            statusText.textContent = '停止中...';
-            stopButton.disabled = true;
+            if (safeSend({ type: 'stop' })) {
+                statusText.textContent = '停止中...';
+                stopButton.disabled = true;
+            }
         });
 
         // UIをリセットする関数
         function resetUI(isStarting) {
-            errorDiv.classList.add('hidden');
             if (isStarting) {
+                errorDiv.classList.add('hidden');
                 resultsList.innerHTML = '';
                 noResultsP.style.display = 'block';
                 noResultsP.textContent = 'ここに結果が表示されます。';
@@ -181,8 +209,12 @@
 
         // エラーを表示する関数
         function showError(message) {
-            errorDiv.textContent = message;
-            errorDiv.classList.remove('hidden');
+            if (message) {
+                errorDiv.textContent = message;
+                errorDiv.classList.remove('hidden');
+            } else {
+                errorDiv.classList.add('hidden');
+            }
         }
 
         // ページ読み込み時にWebSocket接続を開始
