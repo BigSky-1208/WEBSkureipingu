@@ -32,7 +32,6 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '')));
 
 // --- ヘルスチェック用エンドポイント ---
-// Render.comがサーバーの生存確認に使うための、認証不要なルート
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
@@ -47,11 +46,9 @@ app.get('/', (req, res) => {
 });
 
 // --- WebSocketルーティング ---
-// ユーザーごとのスクレイピング状態を管理
 const scrapingStates = new Map();
 
 app.ws('/', (ws, req) => {
-  // ★修正点: ここではreq.oidcが正しく利用可能になります
   if (!req.oidc.isAuthenticated()) {
     ws.close(1008, "Unauthorized");
     return;
@@ -91,18 +88,23 @@ app.ws('/', (ws, req) => {
 });
 
 // --- サーバーの起動 ---
-// ★修正点: app.listenでHTTPとWebSocketの両方を起動
 app.listen(PORT, () => {
   console.log(`サーバーがポート${PORT}で起動しました。`);
 });
 
 
-// --- スクレイピング実行関数 (変更なし) ---
+// --- スクレイピング実行関数 ---
 async function runScraping(ws, startUrl, keyword, state) {
     if (!startUrl || !keyword || !isValidUrl(startUrl)) {
         ws.send(JSON.stringify({ type: 'error', payload: '有効なURLとキーワードを入力してください。' }));
         return;
     }
+    
+    // ★修正点: 無視するファイルの拡張子リストから '.pdf' を削除
+    const ignoredExtensions = [
+        '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', 
+        '.zip', '.css', '.js', '.xml', '.ico', '.woff', '.woff2', '.ttf'
+    ];
     
     const normalizedKeyword = keyword.normalize('NFKC').toLowerCase();
     
@@ -139,10 +141,13 @@ async function runScraping(ws, startUrl, keyword, state) {
                     $('a').each((i, element) => {
                         const link = $(element).attr('href');
                         if (link) {
-                            // URLの解決部分をより安全に
                             try {
                                 const nextUrlObj = new URL(link, currentUrl);
-                                if (['http:', 'https:'].includes(nextUrlObj.protocol)) {
+                                const pathname = nextUrlObj.pathname.toLowerCase();
+
+                                const shouldIgnore = ignoredExtensions.some(ext => pathname.endsWith(ext));
+
+                                if (['http:', 'https:'].includes(nextUrlObj.protocol) && !shouldIgnore) {
                                     if (!visitedUrls.has(nextUrlObj.href)) {
                                         queue.push({ url: nextUrlObj.href, depth: depth + 1 });
                                     }
