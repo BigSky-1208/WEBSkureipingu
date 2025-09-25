@@ -5,12 +5,11 @@ const cheerio = require('cheerio');
 const cors = require('cors');
 const path = require('path');
 const { auth, requiresAuth } = require('express-openid-connect');
-const { createServer } = require('http');
-const { WebSocketServer } = require('ws'); // ★WebSocketライブラリを追加
 require('dotenv').config();
 
 // --- Expressアプリケーションの基本設定 ---
 const app = express();
+const expressWs = require('express-ws')(app); // ★修正点: express-wsを適用
 const PORT = process.env.PORT || 3000;
 
 // Render.comのようなプロキシ環境でセッションが正しく機能するために追加
@@ -41,15 +40,12 @@ app.get('/', (req, res) => {
   }
 });
 
-// --- HTTPサーバーとWebSocketサーバーの起動 ---
-const server = createServer(app);
-const wss = new WebSocketServer({ server });
-
+// --- WebSocketルーティング ---
 // ユーザーごとのスクレイピング状態を管理
 const scrapingStates = new Map();
 
-wss.on('connection', (ws, req) => {
-  // 認証されたユーザーのみWebSocket接続を許可
+app.ws('/', (ws, req) => {
+  // ★修正点: ここではreq.oidcが正しく利用可能になります
   if (!req.oidc.isAuthenticated()) {
     ws.close(1008, "Unauthorized");
     return;
@@ -62,7 +58,6 @@ wss.on('connection', (ws, req) => {
     if (data.type === 'start') {
         const { startUrl, keyword } = data.payload;
         
-        // 既にこのユーザーの検索が実行中の場合は何もしない
         if (scrapingStates.has(userId) && scrapingStates.get(userId).isScraping) {
             return;
         }
@@ -83,19 +78,20 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
-    // 接続が切れたら検索を停止
     if (scrapingStates.has(userId)) {
         scrapingStates.get(userId).stop = true;
     }
   });
 });
 
-server.listen(PORT, () => {
+// --- サーバーの起動 ---
+// ★修正点: app.listenでHTTPとWebSocketの両方を起動
+app.listen(PORT, () => {
   console.log(`サーバーがポート${PORT}で起動しました。`);
 });
 
 
-// --- スクレイピング実行関数 ---
+// --- スクレイピング実行関数 (変更なし) ---
 async function runScraping(ws, startUrl, keyword, state) {
     if (!startUrl || !keyword || !isValidUrl(startUrl)) {
         ws.send(JSON.stringify({ type: 'error', payload: '有効なURLとキーワードを入力してください。' }));
@@ -109,7 +105,7 @@ async function runScraping(ws, startUrl, keyword, state) {
         const queue = [{ url: startUrl, depth: 0 }];
 
         while (queue.length > 0) {
-            if (state.stop) { // ストップフラグをチェック
+            if (state.stop) {
                 ws.send(JSON.stringify({ type: 'done', payload: '検索がユーザーによって停止されました。' }));
                 return;
             }
@@ -137,11 +133,16 @@ async function runScraping(ws, startUrl, keyword, state) {
                     $('a').each((i, element) => {
                         const link = $(element).attr('href');
                         if (link) {
-                            const nextUrlObj = new URL(link, currentUrl);
-                            if (['http:', 'https:'].includes(nextUrlObj.protocol)) {
-                                if (!visitedUrls.has(nextUrlObj.href)) {
-                                    queue.push({ url: nextUrlObj.href, depth: depth + 1 });
+                            // URLの解決部分をより安全に
+                            try {
+                                const nextUrlObj = new URL(link, currentUrl);
+                                if (['http:', 'https:'].includes(nextUrlObj.protocol)) {
+                                    if (!visitedUrls.has(nextUrlObj.href)) {
+                                        queue.push({ url: nextUrlObj.href, depth: depth + 1 });
+                                    }
                                 }
+                            } catch (e) {
+                                // 不正なURLは無視
                             }
                         }
                     });
