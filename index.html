@@ -7,9 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-        }
+        body { font-family: 'Inter', sans-serif; }
         .loader {
             border: 4px solid #f3f3f3;
             border-top: 4px solid #3498db;
@@ -43,17 +41,18 @@
                 <div>
                     <label for="keyword" class="block text-sm font-medium text-gray-700 mb-1">検索キーワード</label>
                     <input type="text" id="keyword" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="例: テクノロジー">
-                    <!-- ★修正点: ユーザーへの注釈を追加 -->
                     <p class="text-xs text-gray-500 mt-1">※全角/半角、大文字/小文字は区別されません。</p>
                 </div>
-                <button id="scrapeButton" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-300">
-                    検索開始
-                </button>
+                <div class="flex space-x-2">
+                    <button id="scrapeButton" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-300">検索開始</button>
+                    <button id="stopButton" class="w-full bg-gray-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-gray-600 hidden">検索ストップ</button>
+                </div>
             </div>
 
             <div id="loading" class="mt-8 text-center hidden">
                 <div class="loader inline-block"></div>
-                <p class="text-gray-600 mt-2">検索中です... (時間がかかる場合があります)</p>
+                <p id="statusText" class="text-gray-600 mt-2">検索準備中...</p>
+                <p id="currentUrl" class="text-gray-500 text-sm mt-1 break-all truncate" title=""></p>
             </div>
             
             <div id="error" class="mt-6 p-4 bg-red-100 text-red-700 rounded-lg hidden"></div>
@@ -69,16 +68,65 @@
     </div>
 
     <script>
-        const startUrlInput = document.getElementById('startUrl');
-        const keywordInput = document.getElementById('keyword');
-        const scrapeButton = document.getElementById('scrapeButton');
-        const loadingDiv = document.getElementById('loading');
-        const errorDiv = document.getElementById('error');
-        const resultsDiv = document.getElementById('results');
-        const noResultsP = document.getElementById('no-results');
-        const resultsList = document.getElementById('resultsList');
+        // DOM要素の取得
+        const getEl = (id) => document.getElementById(id);
+        const startUrlInput = getEl('startUrl');
+        const keywordInput = getEl('keyword');
+        const scrapeButton = getEl('scrapeButton');
+        const stopButton = getEl('stopButton');
+        const loadingDiv = getEl('loading');
+        const statusText = getEl('statusText');
+        const currentUrlP = getEl('currentUrl');
+        const errorDiv = getEl('error');
+        const noResultsP = getEl('no-results');
+        const resultsList = getEl('resultsList');
 
-        scrapeButton.addEventListener('click', async () => {
+        let ws;
+
+        // WebSocket接続を確立する関数
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}`;
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => console.log('WebSocket connected.');
+            ws.onclose = () => console.log('WebSocket disconnected.');
+            ws.onerror = (err) => {
+                console.error('WebSocket error:', err);
+                showError('サーバーとの通信に失敗しました。ページを再読み込みしてください。');
+            };
+
+            // サーバーからのメッセージを処理
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                switch (data.type) {
+                    case 'progress':
+                        statusText.textContent = '検索中...';
+                        currentUrlP.textContent = data.payload.url;
+                        currentUrlP.title = data.payload.url;
+                        break;
+                    case 'result':
+                        noResultsP.style.display = 'none';
+                        displayResult(data.payload);
+                        break;
+                    case 'done':
+                        resetUI(false); // 検索完了状態にUIをリセット
+                        statusText.textContent = data.payload;
+                        setTimeout(() => loadingDiv.classList.add('hidden'), 3000);
+                        break;
+                    case 'error':
+                        showError(data.payload);
+                        resetUI(false);
+                        break;
+                    case 'log':
+                        console.log('Server log:', data.payload);
+                        break;
+                }
+            };
+        }
+
+        // 検索開始ボタンの処理
+        scrapeButton.addEventListener('click', () => {
             const startUrl = startUrlInput.value;
             const keyword = keywordInput.value;
 
@@ -87,67 +135,58 @@
                 return;
             }
             
-            resetUI();
-
-            try {
-                const response = await fetch('/scrape', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ startUrl, keyword }),
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || `サーバーエラー: ${response.status}`);
-                }
-
-                const data = await response.json();
-
-                if (data.foundUrls && data.foundUrls.length > 0) {
-                    displayResults(data.foundUrls);
-                } else {
-                    noResultsP.textContent = 'キーワードに一致するページは見つかりませんでした。';
-                    noResultsP.style.display = 'block';
-                }
-
-            } catch (err) {
-                showError(err.message || 'スクレイピング中にエラーが発生しました。');
-                console.error(err);
-            } finally {
-                loadingDiv.classList.add('hidden');
-                scrapeButton.disabled = false;
-                scrapeButton.textContent = '検索開始';
-            }
+            resetUI(true); // 検索開始状態にUIをリセット
+            ws.send(JSON.stringify({ type: 'start', payload: { startUrl, keyword } }));
         });
 
-        function resetUI() {
-            loadingDiv.classList.remove('hidden');
+        // 検索ストップボタンの処理
+        stopButton.addEventListener('click', () => {
+            ws.send(JSON.stringify({ type: 'stop' }));
+            statusText.textContent = '停止中...';
+            stopButton.disabled = true;
+        });
+
+        // UIをリセットする関数
+        function resetUI(isStarting) {
             errorDiv.classList.add('hidden');
-            resultsList.innerHTML = '';
-            noResultsP.style.display = 'none';
-            scrapeButton.disabled = true;
-            scrapeButton.textContent = '検索中...';
+            if (isStarting) {
+                resultsList.innerHTML = '';
+                noResultsP.style.display = 'block';
+                noResultsP.textContent = 'ここに結果が表示されます。';
+                loadingDiv.classList.remove('hidden');
+                statusText.textContent = '検索準備中...';
+                currentUrlP.textContent = '';
+                scrapeButton.classList.add('hidden');
+                stopButton.classList.remove('hidden');
+                stopButton.disabled = false;
+            } else {
+                scrapeButton.classList.remove('hidden');
+                stopButton.classList.add('hidden');
+            }
         }
 
-        function displayResults(urls) {
-            urls.forEach(item => {
-                const li = document.createElement('li');
-                li.className = 'p-2 bg-white rounded-md shadow-sm';
-                const a = document.createElement('a');
-                a.href = item.url;
-                a.textContent = `${item.url} (${item.depth}階層目)`;
-                a.target = '_blank';
-                a.rel = 'noopener noreferrer';
-                a.className = 'text-blue-600 hover:underline break-all';
-                li.appendChild(a);
-                resultsList.appendChild(li);
-            });
+        // 検索結果を1件表示する関数
+        function displayResult(item) {
+            const li = document.createElement('li');
+            li.className = 'p-2 bg-white rounded-md shadow-sm';
+            const a = document.createElement('a');
+            a.href = item.url;
+            a.textContent = `${item.url} (${item.depth}階層目)`;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.className = 'text-blue-600 hover:underline break-all';
+            li.appendChild(a);
+            resultsList.appendChild(li);
         }
 
+        // エラーを表示する関数
         function showError(message) {
             errorDiv.textContent = message;
             errorDiv.classList.remove('hidden');
         }
+
+        // ページ読み込み時にWebSocket接続を開始
+        window.addEventListener('load', connectWebSocket);
     </script>
 </body>
 </html>
