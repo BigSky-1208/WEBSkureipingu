@@ -27,7 +27,13 @@ const config = {
   secret: process.env.SECRET,
   baseURL: process.env.BASE_URL,
   clientID: process.env.CLIENT_ID,
-  issuerBaseURL: process.env.ISSUER_BASE_URL
+  issuerBaseURL: process.env.ISSUER_BASE_URL,
+  // ★修正点: ログアウト後のリダイレクト先を明示的に設定
+  routes: {
+    logout: {
+      postLogoutRedirect: '/',
+    },
+  },
 };
 
 // --- ミドルウェア ---
@@ -46,7 +52,6 @@ app.get('/', (req, res) => {
   if (req.oidc.isAuthenticated()) {
     res.sendFile(path.join(__dirname, 'index.html'));
   } else {
-    // ★修正点: 自動でログインさせず、ログインページへのリンクを表示する
     res.send('<h1>ようこそ</h1><p>Webスクレイピングシステムへようこそ。利用するにはログインしてください。</p><a href="/login" style="font-size: 1.2em; padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">ログイン</a>');
   }
 });
