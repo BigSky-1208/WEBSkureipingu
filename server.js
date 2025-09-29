@@ -6,7 +6,6 @@ const cors = require('cors');
 const path = require('path');
 const { auth, requiresAuth } = require('express-openid-connect');
 require('dotenv').config();
-const { URLSearchParams } = require('url'); // ★追加：URLのパラメータを扱うため
 
 // --- Expressアプリケーションの基本設定 ---
 const app = express();
@@ -29,6 +28,7 @@ const config = {
   baseURL: process.env.BASE_URL,
   clientID: process.env.CLIENT_ID,
   issuerBaseURL: process.env.ISSUER_BASE_URL,
+  // ★修正点1: 問題の原因となっていたlogoutParamsをここから削除
 };
 
 // --- ミドルウェア ---
@@ -51,25 +51,12 @@ app.get('/', (req, res) => {
   }
 });
 
-// ★修正点: Auth0とIdP(Google)から完全にログアウトさせるためのカスタムルート
-app.get('/full-logout', (req, res) => {
-  // Auth0のログアウトURLを構築
-  const logoutUrl = new URL(
-    `https://${process.env.ISSUER_BASE_URL}/v2/logout`
-  );
-  
-  const params = new URLSearchParams({
-    client_id: process.env.CLIENT_ID,
-    returnTo: process.env.BASE_URL
-  });
-
-  // federatedパラメータを追加することで、GoogleなどのIdPからもログアウトさせる
-  logoutUrl.search = params.toString() + '&federated';
-
-  // express-openid-connectのログアウト機能を使ってセッションを破棄し、
-  // 構築した完全ログアウトURLにリダイレクトする
+// ★修正点2: 標準の/logoutルートを上書きし、手動でfederatedログアウトを指定する
+app.get('/logout', (req, res) => {
   res.oidc.logout({
-    returnTo: logoutUrl.toString(),
+    logoutParams: {
+      federated: '', // これによりGoogleなどからもログアウトする
+    }
   });
 });
 
