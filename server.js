@@ -28,12 +28,9 @@ const config = {
   baseURL: process.env.BASE_URL,
   clientID: process.env.CLIENT_ID,
   issuerBaseURL: process.env.ISSUER_BASE_URL,
-  // ★修正点: ログアウト後のリダイレクト先を明示的に設定
-  routes: {
-    logout: {
-      postLogoutRedirect: '/',
-    },
-  },
+  // ★修正点: ライブラリの仕様に合わないため、不正なroutesオブジェクトを削除しました。
+  // auth0Logout: true の設定により、ログアウト後は自動的にbaseURLにリダイレクトされ、
+  // ログインしていないユーザー向けの「ようこそ」ページが正しく表示されます。
 };
 
 // --- ミドルウェア ---
