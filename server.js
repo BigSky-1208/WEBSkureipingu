@@ -9,8 +9,13 @@ require('dotenv').config();
 
 // --- Expressアプリケーションの基本設定 ---
 const app = express();
-const expressWs = require('express-ws')(app);
 const PORT = process.env.PORT || 3000;
+
+const server = app.listen(PORT, () => {
+  console.log(`サーバーがポート${PORT}で起動しました。`);
+});
+
+const expressWs = require('express-ws')(app, server);
 
 // Render.comのようなプロキシ環境でセッションが正しく機能するために追加
 app.set('trust proxy', 1);
@@ -41,7 +46,8 @@ app.get('/', (req, res) => {
   if (req.oidc.isAuthenticated()) {
     res.sendFile(path.join(__dirname, 'index.html'));
   } else {
-    res.oidc.login({ returnTo: '/' });
+    // ★修正点: 自動でログインさせず、ログインページへのリンクを表示する
+    res.send('<h1>ようこそ</h1><p>Webスクレイピングシステムへようこそ。利用するにはログインしてください。</p><a href="/login" style="font-size: 1.2em; padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">ログイン</a>');
   }
 });
 
@@ -49,7 +55,6 @@ app.get('/', (req, res) => {
 const scrapingStates = new Map();
 
 app.ws('/', (ws, req) => {
-  // ★修正点1: ハートビートのためのフラグを設定
   ws.isAlive = true;
   ws.on('pong', () => {
     ws.isAlive = true;
@@ -99,13 +104,9 @@ const interval = setInterval(() => {
     ws.isAlive = false;
     ws.ping(() => {});
   });
-}, 30000); // 30秒ごとにpingを送信
+}, 30000);
 
-// --- サーバーの起動 ---
-const server = app.listen(PORT, () => {
-  console.log(`サーバーがポート${PORT}で起動しました。`);
-});
-
+// --- サーバー終了時のクリーンアップ ---
 server.on('close', () => {
     clearInterval(interval);
 });
