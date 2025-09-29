@@ -4,8 +4,9 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const cors = require('cors');
 const path = require('path');
-const { auth, requiresAuth } = require('express-openid-connect');
+const { auth } = require('express-openid-connect');
 require('dotenv').config();
+const { URLSearchParams } = require('url'); // ★追加: URLパラメータを安全に組み立てるため
 
 // --- Expressアプリケーションの基本設定 ---
 const app = express();
@@ -17,18 +18,16 @@ const server = app.listen(PORT, () => {
 
 const expressWs = require('express-ws')(app, server);
 
-// Render.comのようなプロキシ環境でセッションが正しく機能するために追加
 app.set('trust proxy', 1);
 
 // --- Auth0 設定 ---
 const config = {
   authRequired: false,
-  auth0Logout: true,
+  auth0Logout: false, // ★修正点1: ライブラリの自動ログアウト処理を無効化
   secret: process.env.SECRET,
   baseURL: process.env.BASE_URL,
   clientID: process.env.CLIENT_ID,
   issuerBaseURL: process.env.ISSUER_BASE_URL,
-  // ★修正点1: 問題の原因となっていたlogoutParamsをここから削除
 };
 
 // --- ミドルウェア ---
@@ -51,13 +50,21 @@ app.get('/', (req, res) => {
   }
 });
 
-// ★修正点2: 標準の/logoutルートを上書きし、手動でfederatedログアウトを指定する
+// ★修正点2: 手動で正しいログアウトURLを組み立てる、新しいログアウト処理
 app.get('/logout', (req, res) => {
-  res.oidc.logout({
-    logoutParams: {
-      federated: '', // これによりGoogleなどからもログアウトする
-    }
+  const params = new URLSearchParams({
+    client_id: process.env.CLIENT_ID,
+    returnTo: process.env.BASE_URL
   });
+
+  // Auth0とIdP(Google)からログアウトさせ、安全な戻り先URLを指定した、完全なURLを構築
+  const logoutUrl = `https://${process.env.ISSUER_BASE_URL}/v2/logout?${params.toString()}&federated`;
+
+  // ローカルのセッション情報をクリア
+  req.appSession = undefined;
+  
+  // 構築した正しいURLにユーザーをリダイレクト
+  res.redirect(logoutUrl);
 });
 
 
