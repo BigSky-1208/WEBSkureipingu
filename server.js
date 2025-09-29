@@ -6,7 +6,7 @@ const cors = require('cors');
 const path = require('path');
 const { auth } = require('express-openid-connect');
 require('dotenv').config();
-const { URLSearchParams } = require('url'); // ★追加: URLパラメータを安全に組み立てるため
+const { URLSearchParams } = require('url');
 
 // --- Expressアプリケーションの基本設定 ---
 const app = express();
@@ -23,7 +23,7 @@ app.set('trust proxy', 1);
 // --- Auth0 設定 ---
 const config = {
   authRequired: false,
-  auth0Logout: false, // ★修正点1: ライブラリの自動ログアウト処理を無効化
+  auth0Logout: false, // 手動でログアウト処理を制御するためfalseに設定
   secret: process.env.SECRET,
   baseURL: process.env.BASE_URL,
   clientID: process.env.CLIENT_ID,
@@ -50,21 +50,33 @@ app.get('/', (req, res) => {
   }
 });
 
-// ★修正点2: 手動で正しいログアウトURLを組み立てる、新しいログアウト処理
+// ★修正点: アプリケーションのセッションを完全に破棄する正しいログアウト処理
 app.get('/logout', (req, res) => {
   const params = new URLSearchParams({
     client_id: process.env.CLIENT_ID,
     returnTo: process.env.BASE_URL
   });
 
-  // Auth0とIdP(Google)からログアウトさせ、安全な戻り先URLを指定した、完全なURLを構築
   const logoutUrl = `https://${process.env.ISSUER_BASE_URL}/v2/logout?${params.toString()}&federated`;
-
-  // ローカルのセッション情報をクリア
-  req.appSession = undefined;
   
-  // 構築した正しいURLにユーザーをリダイレクト
-  res.redirect(logoutUrl);
+  // セッションを破棄するためのコールバック関数
+  const afterSessionDestroyed = (err) => {
+    if (err) {
+      console.error('Session destruction error:', err);
+      // エラーが発生しても、とりあえずトップページに戻る
+      return res.redirect('/');
+    }
+    // セッションが正常に破棄された後、Auth0の完全ログアウトURLにリダイレクト
+    res.redirect(logoutUrl);
+  };
+
+  // express-session (ライブラリが内部で使用) の標準的な方法でセッションを破棄
+  if (req.session) {
+    req.session.destroy(afterSessionDestroyed);
+  } else {
+    // セッションが存在しない稀なケースでは、直接リダイレクト
+    res.redirect(logoutUrl);
+  }
 });
 
 
