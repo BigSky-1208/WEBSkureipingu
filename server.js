@@ -6,6 +6,7 @@ const cors = require('cors');
 const path = require('path');
 const { auth, requiresAuth } = require('express-openid-connect');
 require('dotenv').config();
+const { URLSearchParams } = require('url'); // ★追加：URLのパラメータを扱うため
 
 // --- Expressアプリケーションの基本設定 ---
 const app = express();
@@ -28,9 +29,6 @@ const config = {
   baseURL: process.env.BASE_URL,
   clientID: process.env.CLIENT_ID,
   issuerBaseURL: process.env.ISSUER_BASE_URL,
-  // ★修正点: ライブラリの仕様に合わないため、不正なroutesオブジェクトを削除しました。
-  // auth0Logout: true の設定により、ログアウト後は自動的にbaseURLにリダイレクトされ、
-  // ログインしていないユーザー向けの「ようこそ」ページが正しく表示されます。
 };
 
 // --- ミドルウェア ---
@@ -52,6 +50,29 @@ app.get('/', (req, res) => {
     res.send('<h1>ようこそ</h1><p>Webスクレイピングシステムへようこそ。利用するにはログインしてください。</p><a href="/login" style="font-size: 1.2em; padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">ログイン</a>');
   }
 });
+
+// ★修正点: Auth0とIdP(Google)から完全にログアウトさせるためのカスタムルート
+app.get('/full-logout', (req, res) => {
+  // Auth0のログアウトURLを構築
+  const logoutUrl = new URL(
+    `https://${process.env.ISSUER_BASE_URL}/v2/logout`
+  );
+  
+  const params = new URLSearchParams({
+    client_id: process.env.CLIENT_ID,
+    returnTo: process.env.BASE_URL
+  });
+
+  // federatedパラメータを追加することで、GoogleなどのIdPからもログアウトさせる
+  logoutUrl.search = params.toString() + '&federated';
+
+  // express-openid-connectのログアウト機能を使ってセッションを破棄し、
+  // 構築した完全ログアウトURLにリダイレクトする
+  res.oidc.logout({
+    returnTo: logoutUrl.toString(),
+  });
+});
+
 
 // --- WebSocketルーティング ---
 const scrapingStates = new Map();
