@@ -1,6 +1,6 @@
 // 必要なライブラリをインポートします
 const express = require('express');
-const axios = require('axios');
+const axios =require('axios');
 const cheerio = require('cheerio');
 const cors = require('cors');
 const path = require('path');
@@ -21,9 +21,12 @@ const expressWs = require('express-ws')(app, server);
 app.set('trust proxy', 1);
 
 // --- Auth0 設定 ---
+// ★修正点1: auth0Logout を true に変更します。
+// これにより、ライブラリが提供する /logout エンドポイントが有効になり、
+// 安全なログアウト処理が自動的に行われます。
 const config = {
   authRequired: false,
-  auth0Logout: false, // 手動でログアウト処理を制御するためfalseに設定
+  auth0Logout: true, // <-- falseからtrueに変更
   secret: process.env.SECRET,
   baseURL: process.env.BASE_URL,
   clientID: process.env.CLIENT_ID,
@@ -34,7 +37,8 @@ const config = {
 app.use(auth(config));
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '')));
+// index.htmlは/appでのみ提供するため、静的ファイル配信の設定を修正
+// app.use(express.static(path.join(__dirname, '')));
 
 // --- ヘルスチェック用エンドポイント ---
 app.get('/health', (req, res) => {
@@ -42,53 +46,52 @@ app.get('/health', (req, res) => {
 });
 
 // --- HTTPルーティング ---
+
+// ルートパス("/")は常にウェルカムメッセージを表示します
 app.get('/', (req, res) => {
+  // もしログイン済みなら、自動的に/appへリダイレクトします
   if (req.oidc.isAuthenticated()) {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    res.redirect('/app');
   } else {
+    // ログインしていなければ、ウェルカムページを表示します
     res.send('<h1>ようこそ</h1><p>Webスクレイピングシステムへようこそ。利用するにはログインしてください。</p><a href="/login" style="font-size: 1.2em; padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">ログイン</a>');
   }
 });
 
-// ★修正点: アプリケーションのセッションを完全に破棄する正しいログアウト処理
-app.get('/logout', (req, res) => {
-  const params = new URLSearchParams({
-    client_id: process.env.CLIENT_ID,
-    returnTo: process.env.BASE_URL
-  });
-
-  const logoutUrl = `https://${process.env.ISSUER_BASE_URL}/v2/logout?${params.toString()}&federated`;
-  
-  // セッションを破棄するためのコールバック関数
-  const afterSessionDestroyed = (err) => {
-    if (err) {
-      console.error('Session destruction error:', err);
-      // エラーが発生しても、とりあえずトップページに戻る
-      return res.redirect('/');
-    }
-    // セッションが正常に破棄された後、Auth0の完全ログアウトURLにリダイレクト
-    res.redirect(logoutUrl);
-  };
-
-  // express-session (ライブラリが内部で使用) の標準的な方法でセッションを破棄
-  if (req.session) {
-    req.session.destroy(afterSessionDestroyed);
+// "/app" ルートを追加し、認証が必要なメインアプリケーションページとして設定します
+app.get('/app', (req, res) => {
+  if (req.oidc.isAuthenticated()) {
+    res.sendFile(path.join(__dirname, 'index.html'));
   } else {
-    // セッションが存在しない稀なケースでは、直接リダイレクト
-    res.redirect(logoutUrl);
+    // ログインしていなければ、ログインを促すためにルートパスへリダイレクトします
+    res.redirect('/');
   }
 });
+
+
+// ★修正点2: 手動で実装していたログアウト処理を完全に削除します。
+// auth0Logout: true に設定したため、ライブラリが自動で /logout パスを処理してくれます。
+// 以下の app.get('/logout', ...) のブロックは不要なので削除しました。
+/*
+app.get('/logout', (req, res) => {
+  ... (ここのブロック全体を削除) ...
+});
+*/
 
 
 // --- WebSocketルーティング ---
 const scrapingStates = new Map();
 
+// WebSocketのエンドポイントも/appに合わせるとより明確ですが、
+// 今回はシンプルにするためルートのままにしておきます。
+// クライアント(index.html)側はホスト名で接続するため、変更は不要です。
 app.ws('/', (ws, req) => {
   ws.isAlive = true;
   ws.on('pong', () => {
     ws.isAlive = true;
   });
 
+  // WebSocket接続時にも認証をチェックします
   if (!req.oidc.isAuthenticated()) {
     ws.close(1008, "Unauthorized");
     return;
@@ -216,4 +219,3 @@ async function runScraping(ws, startUrl, keyword, state) {
 
 // URL検証用のヘルパー関数
 const isValidUrl = (s) => { try { new URL(s); return true; } catch (err) { return false; } };
-
