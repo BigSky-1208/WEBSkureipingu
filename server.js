@@ -49,6 +49,12 @@ app.get('/', (req, res) => {
 const scrapingStates = new Map();
 
 app.ws('/', (ws, req) => {
+  // ★修正点1: ハートビートのためのフラグを設定
+  ws.isAlive = true;
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+
   if (!req.oidc.isAuthenticated()) {
     ws.close(1008, "Unauthorized");
     return;
@@ -60,16 +66,12 @@ app.ws('/', (ws, req) => {
 
     if (data.type === 'start') {
         const { startUrl, keyword } = data.payload;
-        
         if (scrapingStates.has(userId) && scrapingStates.get(userId).isScraping) {
             return;
         }
-
         const state = { isScraping: true, stop: false };
         scrapingStates.set(userId, state);
-        
         await runScraping(ws, startUrl, keyword, state);
-
         scrapingStates.delete(userId);
     }
 
@@ -87,11 +89,26 @@ app.ws('/', (ws, req) => {
   });
 });
 
+// --- WebSocketの生存確認（ハートビート） ---
+const wss = expressWs.getWss();
+const interval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    ws.ping(() => {});
+  });
+}, 30000); // 30秒ごとにpingを送信
+
 // --- サーバーの起動 ---
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`サーバーがポート${PORT}で起動しました。`);
 });
 
+server.on('close', () => {
+    clearInterval(interval);
+});
 
 // --- スクレイピング実行関数 ---
 async function runScraping(ws, startUrl, keyword, state) {
@@ -100,7 +117,6 @@ async function runScraping(ws, startUrl, keyword, state) {
         return;
     }
     
-    // ★修正点: 無視するファイルの拡張子リストから '.pdf' を削除
     const ignoredExtensions = [
         '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', 
         '.zip', '.css', '.js', '.xml', '.ico', '.woff', '.woff2', '.ttf'
